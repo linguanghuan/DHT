@@ -29,7 +29,12 @@ import metautils
 import downloadTorrent
 from bencode import bencode, bdecode
 import pygeoip
+import demjson
 
+from _mysql_exceptions import Warning, Error, InterfaceError, DataError, \
+     DatabaseError, OperationalError, IntegrityError, InternalError, \
+     NotSupportedError, ProgrammingError
+     
 DB_HOST = '127.0.0.1'
 DB_USER = 'root'
 DB_PASS = ''
@@ -44,8 +49,8 @@ TID_LENGTH = 2
 RE_JOIN_DHT_INTERVAL = 3
 TOKEN_LENGTH = 2
 INFO_HASH_LEN = 500000 #50w数据很小，限制内存不至于消耗太大
-CACHE_LEN = 100 #更新数据库缓存
-WAIT_DOWNLOAD = 80
+CACHE_LEN = 100  #更新数据库缓存
+WAIT_DOWNLOAD = 20
 
 
 geoip = pygeoip.GeoIP('GeoIP.dat')
@@ -295,9 +300,17 @@ class Master(Thread): #解析info_hash
         self.dbcurr = self.dbconn.cursor()
         self.dbcurr.execute('SET NAMES utf8')
         self.visited = set()
-                
+        self.semaphore = threading.Semaphore(50)
+        
+    def reconn(self):
+        pass
+#         self.dbcurr.close()
+#         self.dbconn.close()
+#         self.dbconn = mdb.connect(DB_HOST, DB_USER, DB_PASS, 'oksousou', charset='utf8')
+#         self.dbcurr = self.dbconn.cursor()
+            
     def work(self,item):
-        print "work thread:",item
+        print "work thread:",Thread.getName(self), item
         while True:
             self.prepare_download_metadata()
             self.check_exist()
@@ -318,19 +331,21 @@ class Master(Thread): #解析info_hash
     def log_announce(self, binhash, address=None):
         if self.queue.qsize() < INFO_HASH_LEN : #大于INFO_HASH_LEN就不要入队，否则后面来不及处理
             if is_ip_allowed(address[0]):
+                print "get a announce hash", binhash.encode('hex')
                 self.queue.put([address, binhash]) #获得info_hash
     	
     def log(self, infohash, address=None):
         queue_size = self.queue.qsize()
         if queue_size < INFO_HASH_LEN/2:  #大于INFO_HASH_LEN/2 就不要入队，否则后面来不及处理
             if is_ip_allowed(address[0]):
+#                 print "get a hash", infohash.encode('hex')
                 self.queue.put([address, infohash])
                 
     def prepare_download_metadata(self):
         queue_size = self.queue.qsize()
         if queue_size == 0:
             sleep(2)
-        if (queue_size % 1000 == 1):
+        if (queue_size % 1001 == 1000):
             print("info hash queue size:%d" % queue_size)
             
         #从queue中获得info_hash用来下载
@@ -349,32 +364,38 @@ class Master(Thread): #解析info_hash
     def check_exist(self):
         cache_size = self.cache.qsize()
         if cache_size > CACHE_LEN/2: #出队更新下载
-            print "download_metadata, cache_size:", cache_size
-            while cache_size > 0: #排空队列
-                address,binhash,utcnow = self.cache.get()
-                info_hash = binhash.encode('hex')
-                self.dbcurr.execute('SELECT id FROM search_hash WHERE info_hash=%s', (info_hash,))
-                y = self.dbcurr.fetchone()
-                if y:
-                # 更新最近发现时间，请求数
-                    self.dbcurr.execute('UPDATE search_hash SET last_seen=%s, requests=requests+1 WHERE info_hash=%s', (utcnow, info_hash))
-                else: 
-                    self.waitDownload.put((address, binhash))
-                    
-            self.dbconn.commit()
+            try:
+                print "download_metadata, cache_size:", cache_size
+                while cache_size > 0: #排空队列
+                    address,binhash,utcnow = self.cache.get()
+                    info_hash = binhash.encode('hex')
+                    self.dbcurr.execute('SELECT id FROM search_hash WHERE info_hash=%s', (info_hash,))
+                    y = self.dbcurr.fetchone()
+                    if y:
+                    # 更新最近发现时间，请求数
+                        self.dbcurr.execute('UPDATE search_hash SET last_seen=%s, requests=requests+1 WHERE info_hash=%s', (utcnow, info_hash))
+                    else: 
+                        self.waitDownload.put((address, binhash))
+                        
+                self.dbconn.commit()
+            except:
+                print "======check_exist======error"
+                pass
     
     def download_metadata(self, item):
-        print "download_metadata thread:",item
+        print "download_metadata thread:", Thread.getName(self),item
         while True:
             if self.waitDownload.qsize() > WAIT_DOWNLOAD:
                 print "start deal waitDownload queue, size", self.waitDownload.qsize()
                 while self.waitDownload.qsize() > 0:
                     address,binhash = self.waitDownload.get()
-                    t = threading.Thread(target=downloadTorrent.download_metadata, args=(address, binhash, self.metadata_queue))  # 这里下载线程没有限制,导致线程无限增多
+                    self.semaphore.acquire()
+                    t = threading.Thread(target=downloadTorrent.download_metadata, args=(address, binhash, self, 120))  # 这里下载线程没有限制,导致线程无限增多
                     t.setDaemon(True)
                     t.start()
                 # 需要用join等待以上所有线程跑完, 不然线程主线程退出的话会导致download_metadata下载中断吧, 或者增加sleep给以上子进程一定的下载时间
                 sleep(120)  #等待子进程下载2分钟
+#                 t.join(300)
                 print ("get metadata_queue size:%d" % (self.metadata_queue.qsize()))
             else:
                 sleep(1)
@@ -440,7 +461,7 @@ class Master(Thread): #解析info_hash
         temp = time.time()
         x = time.localtime(float(temp))
         utcnow = time.strftime("%Y-%m-%d %H:%M:%S",x) # get time now
-        
+        details = demjson.encode(info, "utf-8")
         info_hash = binhash.encode('hex') #磁力
         info['info_hash'] = info_hash
         # need to build tags
@@ -468,11 +489,11 @@ class Master(Thread): #解析info_hash
             except:
                 print '\n', 'Saved', info['info_hash']
             ret = self.dbcurr.execute('INSERT INTO search_hash(info_hash,category,data_hash,name,extension,classified,source_ip,tagged,' + 
-                'length,create_time,last_seen,requests) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                'length,create_time,last_seen,requests, details) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, %s)',
                 (info['info_hash'], info['category'], info['data_hash'], info['name'], info['extension'], info['classified'],
-                info['source_ip'], info['tagged'], info['length'], info['create_time'], info['last_seen'], info['requests']))
+                info['source_ip'], info['tagged'], info['length'], info['create_time'], info['last_seen'], info['requests'], details))
             self.count = self.count+1
-            if self.count %50 ==0:
+            if self.count % 6 == 5:
                 self.dbconn.commit()
                 if self.count>100000:
                     self.count=0
@@ -484,7 +505,7 @@ class Master(Thread): #解析info_hash
 if __name__ == "__main__":
     #种子下载客户端 , 多线程下载种子, 下载种子生成描述信息入库
     master = Master()
-    master.start_work(100)
+    master.start_work(50)
     
     #DHT服务器
     dht = DHTServer(master, "0.0.0.0", 6881, max_node_qsize=2000)

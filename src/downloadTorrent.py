@@ -11,9 +11,9 @@ import socket
 from struct import pack, unpack
 from threading import Timer, Thread
 from time import sleep, time
-
 from bencode import bencode, bdecode 
 from startCrawler import entropy
+import traceback
 
 
 BT_PROTOCOL = "BitTorrent protocol"
@@ -100,8 +100,23 @@ def recvall(the_socket, timeout=5):
             pass
     return "".join(total_data)
 
-def download_metadata(address, infohash, metadata_queue, timeout=5):
-    print("download_metadata" + infohash.encode('hex'))
+def save_torrent(infohash, data):
+    try:
+        hashstr = infohash.encode('hex')
+        filename = "F:/torrent/" + hashstr + ".torrent"
+        file_object = open(filename, 'wb')
+        file_object.write(data)
+    except:
+        print "torrent save error for: " + hashstr
+        traceback.print_exc()
+        pass
+    finally:
+        file_object.close()
+        
+     
+def download_metadata(address, infohash, master , timeout=30):
+    metadata_queue = master.metadata_queue
+    print "download_metadata thread:", infohash.encode('hex')
     metadata = None
     start_time = time()
     the_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -133,12 +148,16 @@ def download_metadata(address, infohash, metadata_queue, timeout=5):
         metadata = "".join(metadata)
 
     except socket.timeout:
+        print "========download_metadata time out"
         pass
     except Exception, e:
+        print "========download_metadata error", e
         pass
     finally:
         #print "metadata= %s" %(metadata)
-        print("infohash:%s, metadata:%s" % (infohash.encode('hex'), metadata))
+        master.semaphore.release()
         the_socket.close() #确保没回都关闭socket
-        if metadata != None: #只让不空的种子入�?            
+        if metadata != None and isinstance(metadata, list) == False: #只让不空的种子入�?
+            print("infohash:%s, metadata:%s\n" % (infohash.encode('hex'), metadata)) 
+            save_torrent(infohash, metadata)        
             metadata_queue.put((infohash, address, metadata,start_time))
