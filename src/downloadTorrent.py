@@ -116,7 +116,7 @@ def save_torrent(infohash, data):
      
 def download_metadata(address, infohash, master , timeout=30):
     metadata_queue = master.metadata_queue
-    print "download_metadata thread:", infohash.encode('hex')
+    print "download_metadata thread:", infohash.encode('hex'), address
     metadata = None
     start_time = time()
     the_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
