@@ -300,14 +300,23 @@ class Master(Thread): #解析info_hash
         self.dbcurr = self.dbconn.cursor()
         self.dbcurr.execute('SET NAMES utf8')
         self.visited = set()
-        self.semaphore = threading.Semaphore(50)
+        self.semaphore = threading.Semaphore(300)
+        self.mutex = threading.Lock()
         
     def reconn(self):
-        pass
-#         self.dbcurr.close()
-#         self.dbconn.close()
-#         self.dbconn = mdb.connect(DB_HOST, DB_USER, DB_PASS, 'oksousou', charset='utf8')
-#         self.dbcurr = self.dbconn.cursor()
+        self.mutex.acquire()
+        try:  
+            connection.connection.ping()  
+        except:  
+            if self.dbcurr:
+                self.dbcurr.close()
+            if self.dbconn:
+                self.dbconn.close()
+            self.dbconn = mdb.connect(DB_HOST, DB_USER, DB_PASS, 'oksousou', charset='utf8')
+            self.dbcurr = self.dbconn.cursor()
+            
+        self.mutex.release()
+
             
     def work(self,item):
         print "work thread:",Thread.getName(self), item
@@ -378,9 +387,10 @@ class Master(Thread): #解析info_hash
                         self.waitDownload.put((address, binhash))
                         
                 self.dbconn.commit()
-            except:
-                print "======check_exist======error"
-                pass
+            except Exception, e:
+                print "======check_exist======error", e,
+                if e[0]==2006:
+                    self.reconn()
     
     def download_metadata(self, item):
         print "download_metadata thread:", Thread.getName(self),item
@@ -390,15 +400,12 @@ class Master(Thread): #解析info_hash
                 while self.waitDownload.qsize() > 0:
                     address,binhash = self.waitDownload.get()
                     self.semaphore.acquire()
-                    t = threading.Thread(target=downloadTorrent.download_metadata, args=(address, binhash, self, 120))  # 这里下载线程没有限制,导致线程无限增多
+                    t = threading.Thread(target=downloadTorrent.download_metadata, args=(address, binhash, self, 300))  # 这里下载线程没有限制,导致线程无限增多
                     t.setDaemon(True)
                     t.start()
-                # 需要用join等待以上所有线程跑完, 不然线程主线程退出的话会导致download_metadata下载中断吧, 或者增加sleep给以上子进程一定的下载时间
-                sleep(120)  #等待子进程下载2分钟
-#                 t.join(300)
                 print ("get metadata_queue size:%d" % (self.metadata_queue.qsize()))
             else:
-                sleep(1)
+                sleep(5)
                         
     def decode(self, s):
         if type(s) is list:
@@ -492,11 +499,12 @@ class Master(Thread): #解析info_hash
                 'length,create_time,last_seen,requests, details) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, %s)',
                 (info['info_hash'], info['category'], info['data_hash'], info['name'], info['extension'], info['classified'],
                 info['source_ip'], info['tagged'], info['length'], info['create_time'], info['last_seen'], info['requests'], details))
-            self.count = self.count+1
-            if self.count % 6 == 5:
-                self.dbconn.commit()
-                if self.count>100000:
-                    self.count=0
+            self.dbconn.commit()
+#             self.count = self.count+1
+#             if self.count % 6 == 5:
+#                 self.dbconn.commit()
+#                 if self.count>100000:
+#                     self.count=0
         except:
             print self.name, 'save error', self.name, info
             traceback.print_exc()
@@ -505,7 +513,7 @@ class Master(Thread): #解析info_hash
 if __name__ == "__main__":
     #种子下载客户端 , 多线程下载种子, 下载种子生成描述信息入库
     master = Master()
-    master.start_work(50)
+    master.start_work(100)
     
     #DHT服务器
     dht = DHTServer(master, "0.0.0.0", 6881, max_node_qsize=2000)
