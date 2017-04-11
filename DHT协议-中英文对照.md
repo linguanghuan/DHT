@@ -2,53 +2,56 @@
     英文
     http://www.bittorrent.org/beps/bep_0005.html
     中文:
+    http://blog.csdn.net/xxxxxx91116/article/details/7970815
+    https://segmentfault.com/a/1190000002528378
     http://www.cnblogs.com/bymax/p/4971116.html
     http://www.cnblogs.com/bymax/p/4973639.html
 
 # 介绍
-```
-BEP:	5
-Title:	DHT Protocol
-Version:	023256c7581a4bed356e47caf8632be2834211bd
-Last-Modified:	Thu Jan 12 12:29:12 2017 -0800
-Author:	Andrew Loewenstern <drue@bittorrent.com>, Arvid Norberg <arvid@bittorrent.com>
-Status:	Accepted
-Type:	Standards Track
-Created:	31-Jan-2008
-Post-History:	22-March-2013: Add "implied_port" to announce_peer message, to improve NAT support
-```
-
+	BEP:	5
+	Title:	DHT Protocol
+	Version:	023256c7581a4bed356e47caf8632be2834211bd
+	Last-Modified:	Thu Jan 12 12:29:12 2017 -0800
+	Author:	Andrew Loewenstern <drue@bittorrent.com>, Arvid Norberg <arvid@bittorrent.com>
+	Status:	Accepted
+	Type:	Standards Track
+	Created:	31-Jan-2008
+	Post-History:	22-March-2013: Add "implied_port" to announce_peer message, to improve NAT support
 
 > BitTorrent uses a "distributed sloppy hash table" (DHT) for storing peer contact information for "trackerless" torrents. In effect, each peer becomes a tracker. The protocol is based on Kademila [1] and is implemented over UDP
-
-> > 在dht协议中，bt客户端使用“distributed sloppy hash table”（分布式的hash表）来存储没有tracker地址的种子文件所对应的peer节点的信息，在这种情况下，每一个peer节点变成了一个tracker服务器，dht协议是在udp通信协议的基础上
+> > BitTorrent 使用"分布式哈希表"(distributed sloppy hash table)来为无 tracker 的种子(torrents)存储 peer 之间的联系信息。这样每个 peer 都成了 tracker。这个协议基于  UDP上实现的Kademila[1]算法。
 
 >  note the terminology used in this document to avoid confusion. A "peer" is a client/server listening on a TCP port that implements the BitTorrent protocol. A "node" is a client/server listening on a UDP port implementing the distributed hash table protocol. The DHT is composed of nodes and stores the location of peers. BitTorrent clients include a DHT node, which is used to contact other nodes in the DHT to get the location of peers to download from using the BitTorrent protocol.
-> > 注意这里使用的术语，一个peer节点是一个实现了bt协议并且开启了tcp监听端口的bt客户端或者服务器。一个node节点是一个实现了dht协议并且开启了udp监听端口的bt客户端或者服务器，这两者非常容易混淆。dht由很多node节点以及这些node节点保存的peer地址信息组成，一个bt客户端包括了一个dht node节点，通过这些节点来和dht网络中的其它节点通信来获取peer节点的信息，然后再通过bt协议从peer节点下载文件。
+> > 请注意本文档中使用的术语，以免混乱。
 
+	"peer" 是在一个监听在TCP端口上的实现了BitTorrent协议的客户端/服务器。
+	"node" 是在一个监听在UDP端口上的实现了 DHT(分布式哈希表) 协议的客户端/服务器。
+	
+> > DHT由很多node节点组成,这些node节点保存了peers信息。BitTorrent客户端有一个DHT  node节点，该节点可以联系到DHT中的其他node节点，查找peers 的位置，然后通过BitTorrent协议进行下载。
 
 # Overview 概述
 > Each node has a globally unique identifier known as the "node ID." Node IDs are chosen at random from the same 160-bit space as BitTorrent infohashes [2]. A "distance metric" is used to compare two node IDs or a node ID and an infohash for "closeness." Nodes must maintain a routing table containing the contact information for a small number of other nodes. The routing table becomes more detailed as IDs get closer to the node's own ID. Nodes know about many other nodes in the DHT that have IDs that are "close" to their own but have only a handful of contacts with IDs that are very far away from their own.
-> > dht网络中每一个node节点有一个全局的唯一标识，叫node ID（节点id），节点id是随机从torrent种子文件中的160位的infohashes中随机抽取的。distance metric（距离度量）用来比较两个节点id或者节点id和infohash之间的距离。所有的节点（注意后面所有提到的node节点都简称节点，peer节点不作简写）必须保存一个routing table（路由表）保存它和dht网络中一小部分节点交流的信息。离节点id越近的其它节点id的信息越详细。所有的节点必须知道很多离它们很近的其它节点，离它们很远的节点只需要有足够的握手信息就行了。
+> > 每一个node节点都有一个全局唯一标识：node ID（节点id），Node IDS的产生是随机的，使用与BitTorrent的infohashes相同的160-bit空间。distance metric（距离度量）用来比较两个节点id或者节点id和infohash之间的接近程度。所有的nodes节点都必须保存一个routing table（路由表），用于保存少数与其他nodes节点的联系信息。其它节点IDS离节点自身ID越近，路由表的信息就越详细。nodes保存了很多接近自己的节点，但是离自己很远的节点的联系信息就知道得较少。
 
 > In Kademlia, the distance metric is XOR and the result is interpreted as an unsigned integer. distance(A,B) = |A xor B| Smaller values are closer.
-> > 在Kad算法中，距离度量是对两个hash值进行XOR（异或）运算，并且把结果转换成无符号整数。distance(A,B)=|A xor B|，结果值越小，距离越近。
+> > 在Kademlia算法中，"distance metric"(距离度量)是对两个hash值进行XOR（异或）运算，并且把结果转换成无符号整数。distance(A,B)=|A xor B|，值越小表示距离越近。
 
 > When a node wants to find peers for a torrent, it uses the distance metric to compare the infohash of the torrent with the IDs of the nodes in its own routing table. It then contacts the nodes it knows about with IDs closest to the infohash and asks them for the contact information of peers currently downloading the torrent. If a contacted node knows about peers for the torrent, the peer contact information is returned with the response. Otherwise, the contacted node must respond with the contact information of the nodes in its routing table that are closest to the infohash of the torrent. The original node iteratively queries nodes that are closer to the target infohash until it cannot find any closer nodes. After the search is exhausted, the client then inserts the peer contact information for itself onto the responding nodes with IDs closest to the infohash of the torrent.
-> > 当一个节点想找到一个种子文件的peer节点信息时，就使用距离算法把种子文件的infohash字段和它自己路由表中的节点id进行比较，然后和距离最近的节点进行通信，向它们发送请求获取正在下载这个种子文件的peer节点列表的信息。如果它请求的节点知道这个种子文件的peer节点列表，则把peer节点列表返回给发送请求的节点。如果不知道，它必须返回自己路由表中离infohash最近的节点列表给请求者。原始节点不断迭代的发送请求直到找到离目标infohash更近的节点。搜索结束之后，bt客户端把peer节点的信息保存在自己的路由表里面。
+> > 当一个节点想找到一个种子的peer节点信息时，就把种子文件的infohash字段和它自己路由表中的node id用距离度量进行比较，接下来向路由表中nodeID与info_hash最接近的那些节点发送请求，得到当前正在下载这个torrent文件数据的peers的联系信息。如果被请求的节点知道这个torrent文件的peers，那么peer的联系信息将包含在回复中。否则，被请求的节点必须返回他的路由表中更接近info_hash得那些节点。原始的请求node不断向新获得的那些node中，更接近目标info_hash的那些node发送请求，直到不能获得更近的nodes。当查找结束时，client将自己的信息作为一个peer插入到在刚才请求中给出回复的那些节点中，nodeid与info_hash最接近的哪个节点上，这样，哪个节点又多保存了一个peer信息。
 
 > The return value for a query for peers includes an opaque value known as the "token." For a node to announce that its controlling peer is downloading a torrent, it must present the token received from the same queried node in a recent query for peers. When a node attempts to "announce" a torrent, the queried node checks the token against the querying node's IP address. This is to prevent malicious hosts from signing up other hosts for torrents. Since the token is merely returned by the querying node to the same node it received the token from, the implementation is not defined. Tokens must be accepted for a reasonable amount of time after they have been distributed. The BitTorrent implementation uses the SHA1 hash of the IP address concatenated onto a secret that changes every five minutes and tokens up to ten minutes old are accepted.
-> > 请求peer节点列表的返回值中包含了一个可选“token”，当一个节点声明它控制的peer节点正在下载一个种子文件时，它必须把它最近发送请求中获取的token返回向它发送请求的节点。当一个节点尝试“声明”一个种子时，被询问的节点把token和ip进行检查，这样做是为了防止冒充其它主机下载文件。因为token只是在查询节点和它获取token的节点之间发送，具体的实现没有任何限制。tokens在发布之后的一段时间之内是生效的。bittorrent客户端使用秘钥对ip进行sha1哈希，秘钥每5分钟改变一次，生成的token在10分钟内是有效的。
+> > 在请求peers的时候，对方给我们的回复必须还包含一个不透明的令牌，我们称他为“token”。这样当我们宣布我们正在下载某个torrent，想让对方保存我们的信息时，我们必须使用对方向我们发送的最近的一个token。这样当我们宣布我们在下载一个torrent时，被请求的node检查这个token和IP是否与之前他们向我们回复的一样。这样是为了防止恶意的攻击。由于token仅仅由请求的节点返回，所以我们不规定他的具体实现。但是token必须有一个可接受的时间范围，超过这个时间，token将失效。在BitTorrent的实现中，token是在IP地址后面连接一个secret(可以视为一个随机数)，这个secret每五分钟改变一次，其中token在十分钟以内是可接受的。
 
-# Routing Table 路由表
+# Routing Table - 路由表
 > Every node maintains a routing table of known good nodes. The nodes in the routing table are used as starting points for queries in the DHT. Nodes from the routing table are returned in response to queries from other nodes.
-> > 每一个节点都维护一个路由表保存一些已知的通信好的节点。路由表中的节点通常用来作为起始节点，当其它节点向这个节点发送请求时，路由表中的这些节点就会被返回给发送请求的几点。
+> > 每一个node维护一个路由表保存已知的好节点。这些路由表中的nodes被作为DHT请求的起始节点。路由表中的nodes是在不断的向其他node请求过程中，对方节点回复的。
 
 > Not all nodes that we learn about are equal. Some are "good" and some are not. Many nodes using the DHT are able to send queries and receive responses, but are not able to respond to queries from other nodes. It is important that each node's routing table must contain only known good nodes. A good node is a node has responded to one of our queries within the last 15 minutes. A node is also good if it has ever responded to one of our queries and has sent us a query within the last 15 minutes. After 15 minutes of inactivity, a node becomes questionable. Nodes become bad when they fail to respond to multiple queries in a row. Nodes that we know are good are given priority over nodes with unknown status.
-> > 并不是每一个已知的节点都是对等的。一些节点是活跃的（原文是“good”）的，另外一些不是。dht中的许多节点可以发送请求和接受返回，但是不会响应dht网络中其它节点的请求。每一个节点的路由表中都只保存好的节点，这一点非常重要。一个活跃的节点就是能在15分钟之内响应过请求或者在15分钟之内发送过请求的节点。15分钟之内没有活动的话，这个节点变成问题节点。当一个节点响应请求失败的话，它就变成坏的节点。活跃的节点比状态不明的节点的优先级要高（这不是显然吗？）。
+> > 并不是我们在请求过程中收到得节点都是平等的，有的node是好的，而有的node是死掉的。很多使用DHT协议的nodes都可以发送请求并接收回复，但是不能主动回复其他节点的请求(我认为这是由于防火墙或者NAT的原因)。对每一个node的路由表，只包含好的nodes是很重要的。好的node是指在过去的15分钟以内，曾经对我们的某一个请求给出过回复的节点；或者曾经对我们的请求给出过一个回复(不用在15分钟以内)，并且在过去的15分钟给我们发送过请求。上述两种情况都可将node视为好的node。在15分钟之后，对方没有上述2种情况发生，这个node将变为可疑的。当nodes不能给我们的一系列请求给出回复时，这个节点将变为坏的。相比未知状态的nodes，我们将给好的节点更高的优先权。
 
-> The routing table covers the entire node ID space from 0 to 2160. The routing table is subdivided into "buckets" that each cover a portion of the space. An empty table has one bucket with an ID space range of min=0, max=2160. When a node with ID "N" is inserted into the table, it is placed within the bucket that has min &lt;= N &lt; max. An empty table has only one bucket so any node must fit within it. Each bucket can only hold K nodes, currently eight, before becoming "full." When a bucket is full of known good nodes, no more nodes may be added unless our own node ID falls within the range of the bucket. In that case, the bucket is replaced by two new buckets each with half the range of the old bucket and the nodes from the old bucket are distributed among the two new ones. For a new table with only one bucket, the full bucket is always split into two new buckets covering the ranges 0..2159 and 2159..2160.
-> > 路由表覆盖从0到2160完整的nodeID空间。路由表又被划分为buckets(桶)，每一个bucket包含一个子部分的nodeID空间。一个空的路由表只有一个bucket，它的ID范围从min=0到max=2160。当一个nodeID为“N”的node插入到表中时，它将被放到ID范围在min< N < max的bucket中。一个空的路由表只有一个bucket所以所有的node都将被放到这个bucket中。每一个bucket最多只能保存K个nodes，当前K=8。当一个bucket放满了好的nodes之后，将不再允许新的节点加入，除非我们自身的nodeID在这个bucket的范围内。在这样的情况下，这个bucket将被分裂为2个新的buckets，每一个新桶的范围都是原来旧桶的一半。原来旧桶中的nodes将被重新分配到这两个新的buckets中。如果是一个只有一个bucket的新表，这个包含整个范围的bucket将总被分裂为2个新的buckets，第一个的覆盖范围从0..2159，第二个的范围从2159..2160。
+> The routing table covers the entire node ID space from 0 to 2^160 . The routing table is subdivided into "buckets" that each cover a portion of the space. An empty table has one bucket with an ID space range of min=0, max=2^160. When a node with ID "N" is inserted into the table, it is placed within the bucket that has min &lt;= N &lt; max. An empty table has only one bucket so any node must fit within it. Each bucket can only hold K nodes, currently eight, before becoming "full." When a bucket is full of known good nodes, no more nodes may be added unless our own node ID falls within the range of the bucket. In that case, the bucket is replaced by two new buckets each with half the range of the old bucket and the nodes from the old bucket are distributed among the two new ones. For a new table with only one bucket, the full bucket is always split into two new buckets covering the ranges 0..2^159  and 2^159 .. 2^160.
+> > 路由表覆盖从0到2^160 完整的nodeID空间。路由表又被划分为buckets(桶)，每一个bucket包含一个子部分的nodeID空间。一个空的路由表只有一个bucket，它的ID范围从min=0到max=2^160。当一个nodeID为“N”的node插入到表中时，它将被放到ID范围在min&lt;= N &lt;max的bucket中。一个空的路由表只有一个bucket所以所有的node都将被放到这个bucket中。每一个bucket最多只能保存K个nodes，当前K=8。当一个bucket放满了好的nodes之后，将不再允许新的节点加入，除非我们自身的nodeID在这个bucket的范围内。在这样的情况下，这个bucket将被分裂为2个新的buckets，每一个新桶的范围都是原来旧桶的一半。原来旧桶中的nodes将被重新分配到这两个新的buckets中。如果是一个只有一个bucket的新表，这个包含整个范围的bucket将总被分裂为2个新的buckets，第一个的覆盖范围从0..2^159， 第二个的范围从2^159..2。
+
 
 > When the bucket is full of good nodes, the new node is simply discarded. If any nodes in the bucket are known to have become bad, then one is replaced by the new node. If there are any questionable nodes in the bucket have not been seen in the last 15 minutes, the least recently seen node is pinged. If the pinged node responds then the next least recently seen questionable node is pinged until one fails to respond or all of the nodes in the bucket are known to be good. If a node in the bucket fails to respond to a ping, it is suggested to try once more before discarding the node and replacing it with a new good node. In this way, the table fills with stable long running nodes.
 > > 当bucket装满了好的nodes，那么新的node将被丢弃。一旦bucket中的某一个node变为了坏的node，那么我们就用新的node来替换这个坏的node。如果bucket中有在15分钟内都没有活跃过的节点，我们将这样的节点视为可疑的节点，这时我们向最久没有联系的节点发送ping。如果被pinged的节点给出了回复，那么我们向下一个可疑的节点发送ping，不断这样循环下去，直到有某一个node没有给出ping的回复，或者当前bucket中的所有nodes都是好的(也就是所有nodes都不是可疑nodes，他们在过去15分钟内都有活动)。如果bucket中的某个node没有对我们的ping给出回复，我们最好再试一次(再发送一次ping，因为这个node也许仍然是活跃的，但由于网络拥塞，所以发生了丢包现象，注意DHT的包都是UDP的)，而不是立即丢弃这个node或者直接用新node来替代它。这样，我们得路由表将充满稳定的长时间在线的nodes。
@@ -59,14 +62,14 @@ Post-History:	22-March-2013: Add "implied_port" to announce_peer message, to imp
 > Upon inserting the first node into its routing table and when starting up thereafter, the node should attempt to find the closest nodes in the DHT to itself. It does this by issuing find_node messages to closer and closer nodes until it cannot find any closer. The routing table should be saved between invocations of the client software.
 > > 在第一个node插入路由表并开始服务后，这个node应该试着查找离自身更近的node，这个查找工作是通过不断的发布find_node消息给越来越近的nodes来完成的，当不能找到更近的节点时，这个扩散工作就结束了。路由表应当被启动工作和客户端软件保存（也就是启动的时候从客户端中读取路由表信息，结束的时候客户端软件记录到文件中）。
 
-# BitTorrent Protocol Extension bt协议扩展
+# BitTorrent Protocol Extension - BitTorrent协议扩展
 > The BitTorrent protocol has been extended to exchange node UDP port numbers between peers that are introduced by a tracker. In this way, clients can get their routing tables seeded automatically through the download of regular torrents. Newly installed clients who attempt to download a trackerless torrent on the first try will not have any nodes in their routing table and will need the contacts included in the torrent file.
 > > BitTorrent协议已经被扩展为可以在通过tracker得到的peer之间互相交换nodeUDP端口号(也就是告诉对方我们的DHT服务端口号)，在这样的方式下，客户端可以通过下载普通的种子文件来自动扩展DHT路由表。新安装的客户端第一次试着下载一个无tracker的种子时，它的路由表中将没有任何nodes，这是它需要在torrent文件中找到联系信息。
 
 > Peers supporting the DHT set the last bit of the 8-byte reserved flags exchanged in the BitTorrent protocol handshake. Peer receiving a handshake indicating the remote peer supports the DHT should send a PORT message. It begins with byte 0x09 and has a two byte payload containing the UDP port of the DHT node in network byte order. Peers that receive this message should attempt to ping the node on the received port and IP address of the remote peer. If a response to the ping is recieved, the node should attempt to insert the new contact information into their routing table according to the usual rules.
 > > peers如果支持DHT协议就将BitTorrent协议握手消息的保留位的第八字节的最后一位置为1。这时如果peer收到一个handshake表明对方支持DHT协议，就应该发送PORT消息。它由字节0x09开始，payload的长度是2个字节，包含了这个peer的DHT服务使用的网络字节序的UDP端口号。当peer收到这样的消息是应当向对方的IP和消息中指定的端口号的node发送ping。如果收到了ping的回复，那么应当使用上述的方法将新node的联系信息加入到路由表中。
 
-# Torrent File Extensions Torrent文件扩展
+# Torrent File Extensions - Torrent文件扩展
 > A trackerless torrent dictionary does not have an "announce" key. Instead, a trackerless torrent has a "nodes" key. This key should be set to the K closest nodes in the torrent generating client's routing table. Alternatively, the key could be set to a known good node such as one operated by the person generating the torrent. Please do not automatically add "router.bittorrent.com" to torrent files or automatically add this node to clients routing tables.
 > > 一个无tracker的torrent文件字典不包含announce关键字，而使用一个nodes关键字来替代。这个关键字对应的内容应该设置为torrent创建者的路由表中K个最接近的nodes。可供选择的，这个关键字也可以设置为一个已知的可用节点，比如这个torrent文件的创建者。请不要自动加入router.bittorrent.com到torrent文件中或者自动加入这个node到客户端路由表中。
 
