@@ -100,7 +100,7 @@ def recvall(the_socket, timeout=5):
             pass
     return "".join(total_data)
 
-def save_torrent(infohash, data):
+def save_metainfo_file(infohash, data):
     try:
         hashstr = infohash.encode('hex')
         filename = "F:/torrent/" + hashstr + ".torrent"
@@ -114,7 +114,7 @@ def save_torrent(infohash, data):
         file_object.close()
         
      
-def download_metadata(address, infohash, master , timeout=30):
+def download_metadata(address, infohash, hashtype, master , timeout=30):
     metadata_queue = master.metadata_queue
     print "download_metadata thread:", infohash.encode('hex'), address
     metadata = None
@@ -155,9 +155,12 @@ def download_metadata(address, infohash, master , timeout=30):
         pass
     finally:
         #print "metadata= %s" %(metadata)
-        master.semaphore.release()
+        if hashtype== "announce":
+            master.announce_semaphore.release()
+        else:
+            master.semaphore.release()
         the_socket.close() #确保没回都关闭socket
         if metadata != None and isinstance(metadata, list) == False: #只让不空的种子入�?
             print("infohash:%s, metadata:%s\n" % (infohash.encode('hex'), metadata)) 
-            save_torrent(infohash, metadata)        
-            metadata_queue.put((infohash, address, metadata,start_time))
+            save_metainfo_file(infohash, metadata)        
+            metadata_queue.put((infohash, hashtype, address, metadata, start_time))
