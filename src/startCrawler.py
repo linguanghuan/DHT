@@ -122,6 +122,10 @@ class DHTClient(Thread):
                 file_object.write(self.nid)
                 file_object.close()
                 
+                file_object = open('nid.txt', 'w')
+                file_object.write(self.nid.encode('hex'))
+                file_object.close()
+                
             if os.path.exists('nodes.bin'):
                 file_object = open('nodes.bin','r')
                 try:
@@ -218,7 +222,16 @@ class DHTServer(DHTClient): #获得info_hash
             traceback.print_exc()
         finally:
             file_object.close()
-       
+            
+    def print_headn_nodes(self, nodes, n):
+        try:
+            print "-------------------------------"
+            for i in range(n):
+                node = nodes[i]
+                print "nid:",node.nid.encode('hex'), ",ip:", node.ip, ",port:", node.port
+            print "-------------------------------"
+        except:
+            traceback.print_exc()            
 
     def run(self):
         self.re_join_DHT()
@@ -232,6 +245,7 @@ class DHTServer(DHTClient): #获得info_hash
                 if msg_count % 10000 == 0:
                     print "nodes size:", len(self.nodes)
                     self.save_nodes(self.nodes, "nodes.bin")
+                    self.print_headn_nodes(self.nodes, 10)
                     msg_count = 0
                 self.on_message(msg, address)
             except Exception:
@@ -259,6 +273,7 @@ class DHTServer(DHTClient): #获得info_hash
                         self.process_request_actions[msg["q"]](msg, address) #处理其他节点的请求，这个过程获取info_hash
                     #self.process_request_actions[msg["q"]](msg, address) #处理其他节点的请求，这个过程获取info_hash
                 except KeyError:
+                    traceback.print_exc()
                     self.play_dead(msg, address)
         except KeyError:
             pass
