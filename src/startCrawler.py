@@ -20,6 +20,7 @@ from struct import unpack
 from socket import inet_ntoa
 from threading import Timer, Thread
 from time import sleep
+import collections
 from collections import deque
 from Queue import Queue
 
@@ -34,6 +35,8 @@ import demjson
 from _mysql_exceptions import Warning, Error, InterfaceError, DataError, \
      DatabaseError, OperationalError, IntegrityError, InternalError, \
      NotSupportedError, ProgrammingError
+
+import cPickle
      
 DB_HOST = '127.0.0.1'
 DB_USER = 'root'
@@ -107,8 +110,34 @@ class DHTClient(Thread):
         Thread.__init__(self, name="DHTClient")
         self.setDaemon(True)
         self.max_node_qsize = max_node_qsize
-        self.nid = random_id()
         self.nodes = deque(maxlen=max_node_qsize)
+        try:
+            if os.path.exists("nid.bin"):
+                file_object = open('nid.bin', 'rb')
+                self.nid = file_object.read()
+                file_object.close
+            else:
+                self.nid = random_id()
+                file_object = open('nid.bin', 'wb')
+                file_object.write(self.nid)
+                file_object.close()
+                
+            if os.path.exists('nodes.bin'):
+                file_object = open('nodes.bin','r')
+                try:
+                    self.nodes=cPickle.load(file_object)
+                    print "nodes loaded, size", len(self.nodes)
+                except:
+                    traceback.print_exc()
+                    self.nodes = deque(maxlen=max_node_qsize)
+                finally:
+                    file_object.close()
+            else:
+                self.nodes = deque(maxlen=max_node_qsize)        
+        except:
+            traceback.print_exc()
+        print "nid:", self.nid.encode('hex'), "nodes size", len(self.nodes)
+        
 
     def send_krpc(self, msg, address):
         try:
@@ -140,7 +169,7 @@ class DHTClient(Thread):
         timer(RE_JOIN_DHT_INTERVAL, self.re_join_DHT)
 
     def auto_send_find_node(self):
-        wait = 10 / self.max_node_qsize
+        wait = 1 / self.max_node_qsize
         while True:
             try:
                 node = self.nodes.popleft()
@@ -171,7 +200,6 @@ class DHTServer(DHTClient): #获得info_hash
         self.bind_ip = bind_ip
         self.bind_port = bind_port
         self.speed=0
-
         self.process_request_actions = {
             "get_peers": self.on_get_peers_request,
             "announce_peer": self.on_announce_peer_request,
@@ -182,6 +210,15 @@ class DHTServer(DHTClient): #获得info_hash
 
         timer(RE_JOIN_DHT_INTERVAL, self.re_join_DHT)
 
+    def save_nodes(self, nodes, filename):
+        try:
+            file_object = open(filename, 'w')
+            cPickle.dump(nodes, file_object)
+        except:
+            traceback.print_exc()
+        finally:
+            file_object.close()
+       
 
     def run(self):
         self.re_join_DHT()
@@ -191,11 +228,14 @@ class DHTServer(DHTClient): #获得info_hash
                 (data, address) = self.ufd.recvfrom(65536)
                 msg = bdecode(data)
                 msg_count = msg_count + 1
-                if msg_count%10000 == 0:
-                    print(msg)
+#                 print self.msg_count, msg
+                if msg_count % 10000 == 0:
+                    print "nodes size:", len(self.nodes)
+                    self.save_nodes(self.nodes, "nodes.bin")
                     msg_count = 0
                 self.on_message(msg, address)
             except Exception:
+                traceback.print_exc()
                 pass
 
     def on_message(self, msg, address):
